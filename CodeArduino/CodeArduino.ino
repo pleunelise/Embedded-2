@@ -1,7 +1,8 @@
 #include <Servo.h> //adds servo libary
 #include <SPI.h>
 #include <MFRC522.h> //adds RFID libary
- 
+#include <Wire.h>
+
 #define SS_PIN 10
 #define RST_PIN 9
 MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create MFRC522 instance.
@@ -10,12 +11,14 @@ const int DISPLAY_SHIFT = A0; //outputs for 74595 shift register
 const int DISPLAY_LATCH = A1; 
 const int DISPLAY_DATA  = A2; 
 const int FREE_1        = A3; 
-const int LED_GREEN     = A4; //output
-const int LED_RED       = A5; //output
-const int BUTTON        = 1; //input
+const int IN_A0         = A5; //analog input
+const int LED_GREEN     = 0; //output
+const int LED_RED       = 1; //output
+const int BUTTON        = 2; //input
 const int SPEAKER       = 3; //output
 const int SERVO         = 6; //output
 const int DISTANCEMETER = 7; //input
+const int IN_D0         = 8; //digital input (0 or 1)
 
 
 int cm = 0; //value of the distance at the beginning, because its unknown
@@ -35,16 +38,19 @@ void setup() {
   Serial.begin(9600);   //initiate a serial communication
   SPI.begin();      //initiate  SPI bus
   mfrc522.PCD_Init();   //initiate MFRC522
-
+  
   pinMode(DISPLAY_SHIFT, OUTPUT);
   pinMode(DISPLAY_LATCH, OUTPUT);
   pinMode(DISPLAY_DATA, OUTPUT);
-  //pinMode(DIGIT_3, OUTPUT);
-  pinMode(SPEAKER, OUTPUT); //output for sound
-  pinMode(LED_RED, OUTPUT);
+  pinMode (IN_A0, INPUT);
   pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
   pinMode(BUTTON, INPUT);
+  pinMode(SPEAKER, OUTPUT); //output for sound
   servo.attach(SERVO); //attaches the servo to pin 6
+  pinMode (IN_D0, INPUT);
+
+  //pinMode(DIGIT_3, OUTPUT);
   
   servo.write(7); //writes the position on the servo
   Serial.println("Present your card to the reader...");
@@ -65,10 +71,10 @@ void setup() {
 }
 
 
-//getal shows number n on the 7segment display.
-int n = 2;
+int n = 2; //spots left
+//getal shows number n on the 7segment display
 void getal(int n) {
-  if (n > 9){
+  if (n > 9 || n < 0){
     shift(~segments[8]);
     }
   if (n <= 9){
@@ -91,7 +97,8 @@ void shift(byte d) {
   digitalWrite(DISPLAY_LATCH, LOW);
 } 
 
-void speaker(){
+//function to play sound
+void playSound(){
   tone(SPEAKER, 523, 1000); //play tone 60 (C5 = 523 Hz), from tinkercad
 }
 
@@ -100,14 +107,15 @@ void turnServoUp(){
   delay(2000);
   //turns servo from 0 to 90 degrees in one step
   servo.write(90); //writes the postition on the servo
-  //speaker();
+  playSound();
 }
+
 //function to turn the servo down, so no more cars can pass
 void turnServoDown(){
   delay(2000);
   //turns servo from 90 to 0 degrees in one step
   servo.write(7); //writes the position on the servo
-  //speaker();
+  playSound();
 }
 
 //reads the sound distance in microsecnds and returns it
@@ -155,25 +163,33 @@ bool accesID(){
   }
 }
 
-int buttonPress() {
-  int press;
+bool buttonPress() {
+  bool press;
   int buttonState;
   //static keeps the value between calls and not changing it to LOW every loop
   static int prevButtonState = LOW; //makes the variable prevButtonState start at LOW
   buttonState = LOW;
   buttonState = digitalRead(BUTTON); //makes the variable buttonState what has the value of the input of pin 13 (HIGH/LOW)
-  press = (buttonState == HIGH && prevButtonState == LOW); //gives a true or false from the 'if' statement to press
+  press = (buttonState == LOW && prevButtonState == LOW); //gives a true or false from the 'if' statement to press
   prevButtonState = buttonState; //changes the prevButtonState to the buttonState
   return press; //returns true or false
 }
 
-void freeze()
-{
-  if (buttonPress())
-  {
-    exit(0);
-  }
+int value_A0;
+bool value_D0;
+void lightDetector(){
+  value_A0 = analogRead(IN_A0); // reads the analog input from the IR distance sensor
+  value_D0 = digitalRead(IN_D0);// reads the digital input from the IR distance sensor
+  
+  Serial.print("A0:");
+  Serial.print(value_A0); // prints analog value on the LCD module
+  Serial.println();
+  Serial.print("D0:");
+  Serial.print(value_D0); // prints digital value on the LCD module
+  Serial.println();
+  delay(1000);
 }
+
 /*
 void switchDigit(){
   if (car == parked){
@@ -182,7 +198,6 @@ void switchDigit(){
 }
 */
 void loop() {
-  //freeze();
   getal(n);
   // Look for new cards
   if ( ! mfrc522.PICC_IsNewCardPresent()) 
@@ -194,7 +209,7 @@ void loop() {
   {
     return;
   }
-
+  lightDetector();
   if (accesID())
     {
       //the ID card has access
@@ -202,14 +217,22 @@ void loop() {
       Serial.println();
       turnServoUp();
       delay(3000); //needs to be changed with IR
-      turnServoDown();
+      if(value_D0 == 1){
+        turnServoDown();
+      }
       n -= 1;
     }
-    else {
+   else {
       //the ID card doesn't have access
       Serial.println("Access denied");
       Serial.println();
       turnServoDown();
     }
+  if (n <= 0)
+  {
+    digitalWrite(LED_RED, HIGH);
+    Serial.println("Parking lot is full");  
+    Serial.println();
+  }
     
 }
